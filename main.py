@@ -1,198 +1,163 @@
-from flask import Flask, request, render_template_string, jsonify
-import json, os
-from datetime import datetime
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+import socketio
+import uvicorn
+from collections import defaultdict
+import base64
 
-app = Flask(__name__)
-DATA_FILE = "rooms_data.json"
-ADMIN_PASS = "ghana123"
+app = FastAPI()
+sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
+socket_app = socketio.ASGIApp(sio, app)
 
-if os.path.exists(DATA_FILE):
-    try:
-        with open(DATA_FILE, "r") as f:
-            all_rooms = json.load(f)
-    except:
-        all_rooms = {}
-else:
-    all_rooms = {}
-
-def save_data():
-    with open(DATA_FILE, "w") as f:
-        json.dump(all_rooms, f)
+# rooms: {room_name: [messages]}
+rooms_data = defaultdict(list)
 
 HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GH NOT - {{room}}</title>
+<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:system-ui;background:#111b21;color:#e9edef;height:100vh;display:flex;flex-direction:column}
-.brand{background:#25d366;color:#000;text-align:center;padding:6px;font-size:10px;font-weight:900;letter-spacing:0.5px}
-.header{background:#202c33;padding:12px 15px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #2a3942}
-.header h2{font-size:14px;color:#fff}.header b{color:#25d366}
-.top-bar{background:#182229;padding:8px 10px;display:flex;gap:6px}
-.top-bar input{flex:1;padding:9px;border-radius:8px;border:none;background:#2a3942;color:#fff}
-.top-bar button{padding:9px 12px;border-radius:8px;border:none;background:#25d366;color:#000;font-weight:800;font-size:12px}
-.room-info{background:#182229;padding:5px 10px;font-size:11px;color:#8696a0;text-align:center;word-break:break-all}
-#messages{flex:1;overflow-y:auto;padding:12px;background:#0b141a url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');}
-.msg{background:#202c33;padding:8px 12px;border-radius:0 8px 8px 8px;margin:8px 0;max-width:82%;position:relative;box-shadow:0 1px 1px rgba(0,0,0,0.3)}
-.msg.me{background:#005c4b;margin-left:auto;border-radius:8px 0 8px 8px}
-.msg.name{font-size:11px;color:#25d366;font-weight:700;margin-bottom:2px}
-.msg.txt{font-size:14.5px;word-wrap:break-word;white-space:pre-wrap}
-.msg img{max-width:220px;border-radius:8px;margin-top:6px;cursor:pointer}
-.msg audio{width:210px;margin-top:6px}
-.reply-box{background:rgba(0,0,0,0.35);border-left:3px solid #25d366;padding:5px 8px;margin-bottom:6px;border-radius:4px;font-size:12px}
-.time{font-size:10px;color:#8696a0;text-align:right;margin-top:4px;display:flex;justify-content:space-between}
-.reply-btn{color:#53bdeb;cursor:pointer}
-.del{position:absolute;top:3px;right:6px;cursor:pointer;color:#ff5c5c;font-size:14px;display:none}
-.msg:hover.del{display:block}
-.input-wrap{background:#202c33;padding:6px}
-.stickers{display:flex;gap:6px;padding:6px 4px;overflow-x:auto}
-.stickers span{background:#2a3942;padding:6px 10px;border-radius:15px;font-size:16px;cursor:pointer}
-.reply-preview{background:#182229;padding:8px 12px;font-size:12px;border-left:4px solid #25d366;display:none;justify-content:space-between;align-items:center}
-.input-area{display:flex;gap:6px;align-items:center;padding:8px}
-.input-area input[type=text]{flex:1;padding:12px 15px;border:none;border-radius:25px;background:#2a3942;color:#fff;outline:none}
-.icon-btn{width:44px;height:44px;border-radius:50%;border:none;display:flex;align-items:center;justify-content:center;font-size:20px;cursor:pointer}
-.send{background:#25d366}
-.mic{background:#00a884;color:white}
-.mic.rec{background:#ea0038;animation:pulse 1s infinite}
-@keyframes pulse{0%{transform:scale(1)}50%{transform:scale(1.15)}100%{transform:scale(1)}}
-#fileInput{display:none}
-</style>
-</head>
-<body>
-<div class="brand">CREATED BY JERRICK SMITH • GH-BOT PRO • RENDER LIVE</div>
-<div class="header">
-<h2>The open thread • <b>{{room}}</b> • <span style="color:#25d366">{{count}} msgs</span> • LIVE</h2>
-<button onclick="openAdmin()" style="background:#2a3942;border:none;color:#fff;padding:6px 10px;border-radius:6px;font-size:12px">Admin</button>
-</div>
-<div class="top-bar">
-<input id="roomInput" value="{{room}}" placeholder="Create room e.g. accra-boys, jhs-2024">
+body{margin:0;font-family:sans-serif;background:#e5ddd5}
+.top{position:fixed;top:0;left:0;right:0;background:#202c33;color:#fff;padding:10px;display:flex;gap:6px;z-index:10}
+.top input{flex:1;padding:8px;border-radius:8px;border:0}
+.top button{background:#25D366;border:0;padding:8px 12px;border-radius:8px;font-weight:bold}
+#chat{margin-top:55px;margin-bottom:120px;padding:10px}
+.msg{background:#fff;padding:8px 10px;border-radius:8px;margin:6px 0;max-width:80%;word-wrap:break-word}
+.me{background:#dcf8c6;margin-left:auto}
+.bottom{position:fixed;bottom:0;left:0;right:0;background:#202c33;padding:8px;display:flex;flex-direction:column;gap:6px}
+.row{display:flex;gap:6px;align-items:center}
+.row input{flex:1;padding:10px;border-radius:20px;border:0}
+.row button{width:42px;height:42px;border-radius:50%;border:0;background:#25D366;font-size:18px}
+#stickers{display:flex;gap:6px;overflow-x:auto}
+.st{font-size:24px;background:#111b21;padding:6px 10px;border-radius:20px;cursor:pointer}
+.reply-box{background:#111b21;color:#25D366;padding:4px 8px;font-size:12px;display:none}
+</style></head><body>
+<div class=top>
+<input id=roomInput placeholder="room name" value="open-thread">
 <button onclick="joinRoom()">JOIN ROOM</button>
-<button onclick="shareRoom()">SHARE LINK</button>
+<button onclick="shareLink()">SHARE LINK</button>
 </div>
-<div class="room-info" id="roomLink"></div>
-<div id="replyPreview" class="reply-preview"><span id="replyText"></span><span onclick="cancelReply()" style="cursor:pointer;font-size:18px">✕</span></div>
-<div id="messages"></div>
-<div class="input-wrap">
-<div class="stickers">
-<span onclick="addSticker('😂')">😂</span><span onclick="addSticker('❤️')">❤️</span><span onclick="addSticker('🔥')">🔥</span><span onclick="addSticker('💀')">💀</span><span onclick="addSticker('😭')">😭</span><span onclick="addSticker('🙏')">🙏</span><span onclick="addSticker('💯')">💯</span><span onclick="addSticker('🇬🇭')">🇬🇭</span><span onclick="addSticker('😎')">😎</span><span onclick="addSticker('🥺')">🥺</span>
+<div id=chat></div>
+<div class=bottom>
+<div id=replyBox class=reply-box></div>
+<div id=stickers>
+<div class=st onclick="sendSticker('😂')">😂</div><div class=st onclick="sendSticker('❤️')">❤️</div>
+<div class=st onclick="sendSticker('🔥')">🔥</div><div class=st onclick="sendSticker('💀')">💀</div>
+<div class=st onclick="sendSticker('😭')">😭</div><div class=st onclick="sendSticker('🙏')">🙏</div>
+<div class=st onclick="sendSticker('💯')">💯</div><div class=st onclick="sendSticker('🇬🇭')">🇬🇭</div>
 </div>
-<div class="input-area">
-<input id="name" type="text" placeholder="Name" style="max-width:75px">
-<label for="fileInput" class="icon-btn" style="background:#2a3942">📷</label>
-<input type="file" id="fileInput" accept="image/*" onchange="sendImage(this)">
-<input id="text" type="text" placeholder="Type a message..." onkeypress="if(event.key==='Enter')sendText()">
-<button class="icon-btn mic" id="micBtn" onclick="toggleRec()">🎤</button>
-<button class="icon-btn send" onclick="sendText()">➤</button>
+<div class=row>
+<input id=nameInput placeholder="Name">
+<input type=file id=fileInput accept="image/*" style="display:none" onchange="sendFile(this)">
+<button onclick="document.getElementById('fileInput').click()">📷</button>
+<input id=msgInput placeholder="Hi">
+<button id=micBtn onclick="toggleMic()">🎤</button>
+<button onclick="sendMsg()">➤</button>
 </div>
 </div>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <script>
-let room="{{room}}", replyTo=null, isAdmin=false;
-let mediaRecorder, chunks=[], isRec=false;
-document.getElementById('roomLink').innerText='🔗 Share this link to invite: '+location.href;
-function joinRoom(){let r=document.getElementById('roomInput').value.trim().toLowerCase().replace(/[^a-z0-9-]/g,'-');if(r) location.href='/?room='+r;}
-function shareRoom(){navigator.clipboard.writeText(location.href);alert('Link copied!\\n'+location.href);}
-function addSticker(s){document.getElementById('text').value+=s;document.getElementById('text').focus();}
-function setReply(n,t,i){replyTo={name:n,text:t.slice(0,50),id:i};document.getElementById('replyPreview').style.display='flex';document.getElementById('replyText').innerText='Replying to '+n+': '+t.slice(0,30);}
-function cancelReply(){replyTo=null;document.getElementById('replyPreview').style.display='none';}
-function openAdmin(){let p=prompt('Admin password:');if(p==='ghana123'){isAdmin=true;alert('Admin ON - tap X to delete');loadMsgs();}}
-async function loadMsgs(){
- let r=await fetch('/msgs?room='+room);let data=await r.json();
- let box=document.getElementById('messages');box.innerHTML='';
- data.forEach((m,i)=>{
- let s=await navigator.mediaDevices.getUserMedia({audio:true});
-   let mime = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : 'audio/webm';
-   mediaRecorder=new MediaRecorder(s, {mimeType: mime});chunks=[];
-  let rep=m.reply?`<div class="reply-box"><b>${m.reply.name}</b>: ${m.reply.text}</div>`:'';
-  let cont='';
-  if(m.type=='image') cont=`<img src="${m.text}" onclick="window.open(this.src)">`;
-  else if(m.type=='audio') cont=`<audio controls src="${m.text}"></audio>`;
-  else cont=`<div class="txt">${m.text}</div>`;
-  let del=isAdmin?`<span class="del" onclick="delMsg(${i})">✕</span>`:'';
-  d.innerHTML=`${del}${rep}<div class="name">${m.name}</div>${cont}<div class="time"><span class="reply-btn" onclick="setReply('${m.name.replace(/'/g,"")}','${(m.text||"").toString().slice(0,20).replace(/'/g,"")} ',${i})">↩ reply</span><span>${m.time}</span></div>`;
-  box.appendChild(d);
- });
- box.scrollTop=box.scrollHeight;
+let socket=io();
+let curRoom=new URLSearchParams(location.search).get('room')||'open-thread';
+let replyTo=null;
+let mediaRecorder=null; let chunks=[]; let isRec=false;
+document.getElementById('roomInput').value=curRoom;
+function joinRoom(){
+ let r=document.getElementById('roomInput').value.trim()||'open-thread';
+ location.href='?room='+encodeURIComponent(r);
 }
-async function sendText(){
- let name=document.getElementById('name').value||'Anon';let text=document.getElementById('text').value;
- if(!text.trim()) return;
- document.getElementById('text').value='';
- await fetch('/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room,name,text,type:'text',reply:replyTo})});
- cancelReply();loadMsgs();
+function shareLink(){
+ navigator.clipboard.writeText(location.href);
+ alert('Link copied: '+location.href);
 }
-async function sendImage(inp){
- let f=inp.files[0];if(!f) return;
- let rd=new FileReader();rd.readAsDataURL(f);
- rd.onloadend=async()=>{
-  let name=document.getElementById('name').value||'Anon';
-  await fetch('/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room,name,text:rd.result,type:'image',reply:replyTo})});
-  cancelReply();loadMsgs();
- }
+socket.on('connect',()=>{ socket.emit('join',curRoom); });
+socket.on('history',msgs=>{
+ document.getElementById('chat').innerHTML='';
+ msgs.forEach(addMsg);
+});
+socket.on('new_message',addMsg);
+function addMsg(m){
+ let d=document.createElement('div');
+ d.className='msg'+(m.name==document.getElementById('nameInput').value?' me':'');
+ let html=`<b>${m.name}</b>`;
+ if(m.reply){ html+=`<div style="border-left:3px solid #25D366;padding-left:6px;margin:4px 0;color:#555;font-size:12px">${m.reply}</div>`; }
+ if(m.type=='text'){ html+=`<div>${m.text}</div>`; }
+ if(m.type=='sticker'){ html+=`<div style="font-size:32px">${m.text}</div>`; }
+ if(m.type=='image'){ html+=`<div><img src="${m.text}" style="max-width:100%;border-radius:8px"></div>`; }
+ if(m.type=='audio'){ html+=`<div><audio controls src="${m.text}"></audio></div>`; }
+ html+=`<div style="font-size:10px;color:#999;text-align:right">${m.time||''}</div>`;
+ d.innerHTML=html;
+ d.onclick=()=>{ replyTo=m; document.getElementById('replyBox').style.display='block'; document.getElementById('replyBox').innerText='Reply to '+m.name+': '+(m.text||'').substring(0,30); };
+ document.getElementById('chat').appendChild(d);
+ window.scrollTo(0,document.body.scrollHeight);
 }
-async function toggleRec(){
+function sendMsg(){
+ let name=document.getElementById('nameInput').value.trim()||'Anon';
+ let text=document.getElementById('msgInput').value.trim();
+ if(!text) return;
+ let payload={room:curRoom,name:name,text:text,type:'text',reply:replyTo?replyTo.name+': '+(replyTo.text||'').substring(0,40):''};
+ socket.emit('send',payload);
+ document.getElementById('msgInput').value='';
+ replyTo=null; document.getElementById('replyBox').style.display='none';
+}
+function sendSticker(e){
+ let name=document.getElementById('nameInput').value.trim()||'Anon';
+ socket.emit('send',{room:curRoom,name:name,text:e,type:'sticker',reply:''});
+}
+function sendFile(inp){
+ let f=inp.files[0]; if(!f) return;
+ let reader=new FileReader();
+ reader.onload=e=>{
+  let name=document.getElementById('nameInput').value.trim()||'Anon';
+  socket.emit('send',{room:curRoom,name:name,text:e.target.result,type:'image',reply:''});
+ };
+ reader.readAsDataURL(f);
+}
+async function toggleMic(){
  let btn=document.getElementById('micBtn');
  if(!isRec){
   try{
    let s=await navigator.mediaDevices.getUserMedia({audio:true});
-   mediaRecorder=new MediaRecorder(s);chunks=[];
-   mediaRecorder.ondataavailable=e=>chunks.push(e.data);
-   mediaRecorder.onstop=async()=>{
-    let blob=new Blob(chunks,{type:'audio/webm'});
-    let rd=new FileReader();rd.readAsDataURL(blob);
-    rd.onloadend=async()=>{
-     let name=document.getElementById('name').value||'Anon';
-     await fetch('/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room,name,text:rd.result,type:'audio',reply:replyTo})});
-     cancelReply();loadMsgs();
-    }
+   let mime=MediaRecorder.isTypeSupported('audio/mp4')?'audio/mp4':'audio/webm';
+   mediaRecorder=new MediaRecorder(s,{mimeType:mime}); chunks=[];
+   mediaRecorder.ondataavailable=e=>{ if(e.data.size>0) chunks.push(e.data); };
+   mediaRecorder.onstop=()=>{
+    let blob=new Blob(chunks,{type:mediaRecorder.mimeType});
+    let reader=new FileReader();
+    reader.onload=e=>{
+     let name=document.getElementById('nameInput').value.trim()||'Anon';
+     socket.emit('send',{room:curRoom,name:name,text:e.target.result,type:'audio',reply:''});
+    };
+    reader.readAsDataURL(blob);
    };
-   mediaRecorder.start();isRec=true;btn.classList.add('rec');btn.innerText='⏹️';
-  }catch(e){alert('Allow mic permission!');}
- }else{mediaRecorder.stop();isRec=false;btn.classList.remove('rec');btn.innerText='🎤';}
+   mediaRecorder.start(); isRec=true; btn.innerText='⏹️'; btn.style.background='red';
+  }catch(err){ alert('Mic error: '+err.message); }
+ }else{
+  mediaRecorder.stop(); isRec=false; btn.innerText='🎤'; btn.style.background='#25D366';
+  mediaRecorder.stream.getTracks().forEach(t=>t.stop());
+ }
 }
-async function delMsg(i){if(!confirm('Delete?')) return;await fetch('/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room,index:i,password:'ghana123'})});loadMsgs();}
-setInterval(loadMsgs,2000);loadMsgs();
-</script>
-</body>
-</html>
+document.getElementById('msgInput').addEventListener('keydown',e=>{ if(e.key==='Enter') sendMsg(); });
+</script></body></html>
 """
 
-@app.route("/")
-def home():
-    room = request.args.get("room","open-thread").lower().strip() or "open-thread"
-    room = "".join(c if c.isalnum() or c=="-" else "-" for c in room)
-    count = len(all_rooms.get(room,[]))
-    return render_template_string(HTML, room=room, count=count)
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    return HTML
 
-@app.route("/msgs")
-def msgs():
-    room = request.args.get("room","open-thread")
-    return jsonify(all_rooms.get(room,[])[-200:])
+@sio.on('join')
+async def on_join(sid, room):
+    await sio.enter_room(sid, room)
+    await sio.emit('history', rooms_data[room], to=sid)
 
-@app.route("/send", methods=["POST"])
-def send():
-    d=request.json; room=d.get("room","open-thread")
-    if room not in all_rooms: all_rooms[room]=[]
-    all_rooms[room].append({
-        "name": d.get("name","Anon")[:20],
-        "text": d.get("text","")[:900000],
-        "type": d.get("type","text"),
-        "reply": d.get("reply"),
-        "time": datetime.now().strftime("%H:%M")
-    })
-    if len(all_rooms[room])>400: all_rooms[room]=all_rooms[room][-400:]
-    save_data(); return jsonify({"ok":True})
+@sio.on('send')
+async def on_send(sid, data):
+    room = data.get('room','open-thread')
+    # limit size to 2MB to prevent crash
+    if len(data.get('text','')) > 3000000:
+        return
+    rooms_data[room].append(data)
+    if len(rooms_data[room]) > 200:
+        rooms_data[room] = rooms_data[room][-200:]
+    await sio.emit('new_message', data, room=room)
 
-@app.route("/delete", methods=["POST"])
-def delete_msg():
-    d=request.json
-    if d.get("password")!=ADMIN_PASS: return jsonify({"ok":False})
-    room=d.get("room"); idx=d.get("index")
-    if room in all_rooms and 0 <= idx < len(all_rooms[room]):
-        all_rooms[room].pop(idx); save_data()
-    return jsonify({"ok":True})
-
-if __name__=="__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT",10000)))
+if __name__ == "__main__":
+    uvicorn.run(socket_app, host="0.0.0.0", port=10000)
