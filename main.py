@@ -2,35 +2,55 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 import socketio
 from collections import defaultdict
+import json, os
 
 app = FastAPI()
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
 socket_app = socketio.ASGIApp(sio, app)
+DB_FILE = "gh_rooms.json"
 rooms_data = defaultdict(list)
+if os.path.exists(DB_FILE):
+    try:
+        with open(DB_FILE, "r") as f:
+            data=json.load(f)
+            for k,v in data.items(): rooms_data[k]=v
+    except: pass
+def save_db():
+    try:
+        with open(DB_FILE, "w") as f: json.dump(dict(rooms_data), f)
+    except: pass
 
 @app.get("/manifest.json")
 async def manifest():
     return JSONResponse({
-        "name": "GH NOT - Ghana Chat",
+        "name": "GH NOT - Ghana Chat 🇬🇭",
         "short_name": "GH NOT",
-        "start_url": "/?room=open-thread",
+        "start_url": "/",
+        "scope": "/",
         "display": "standalone",
         "background_color": "#075e54",
         "theme_color": "#075e54",
-        "icons": [{"src": "https://cdn-icons-png.flaticon.com/512/1384/1384023.png", "sizes": "512x512", "type": "image/png"}]
+        "description": "Ghana's #1 Chat App",
+        "icons": [
+            {"src": "https://cdn-icons-png.flaticon.com/512/5962/5962463.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "https://cdn-icons-png.flaticon.com/512/5962/5962463.png", "sizes": "512x512", "type": "image/png"}
+        ]
     })
 
 @app.get("/sw.js")
 async def sw():
-    js = "self.addEventListener('install', e=>self.skipWaiting()); self.addEventListener('activate', e=>self.clients.claim()); self.addEventListener('fetch', e=>{ e.respondWith(fetch(e.request)); });"
-    return Response(content=js, media_type="application/javascript")
+    js = "self.addEventListener('install', e=>{self.skipWaiting()}); self.addEventListener('activate', e=>{self.clients.claim()}); self.addEventListener('fetch', e=>{e.respondWith(fetch(e.request))});"
+    return Response(content=js, media_type="application/javascript", headers={"Cache-Control":"no-cache"})
 
 HTML = """<!DOCTYPE html><html><head>
 <meta charset="utf-8">
 <meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>
 <meta name="theme-color" content="#075e54">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="GH NOT">
 <link rel="manifest" href="/manifest.json">
-<title>GH NOT App</title>
+<link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/5962/5962463.png">
+<title>GH NOT App 🇬🇭</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;overflow:hidden}
@@ -43,7 +63,7 @@ body{font-family:sans-serif;background:#efeae2;display:flex;flex-direction:colum
 .btn-share{background:#e8e8e8!important;color:#0d6efd!important;border:1px solid #fff!important}
 .btn-momo{background:#ffdd00!important;color:#000!important;border:1px solid #000!important}
 .btn-clear{background:#ff3b30!important;color:#fff!important;border:1px solid #fff!important}
-.btn-install{background:#25D366!important;color:#fff!important;border:1px solid #fff!important;display:none}
+.btn-install{background:#25D366!important;color:#fff!important;border:1px solid #fff!important}
 #chat{flex:1;overflow-y:auto;padding:8px}
 .msg{position:relative;background:#fff;padding:6px 8px 18px 8px;margin:6px 0;max-width:84%;border-radius:0 8px 8px 8px;box-shadow:0 1px 0.5px rgba(0,0,0,.2);word-break:break-word}
 .me{background:#dcf8c6;margin-left:auto;border-radius:8px 0 8px 8px}
@@ -62,12 +82,21 @@ body{font-family:sans-serif;background:#efeae2;display:flex;flex-direction:colum
 #nameInput{flex:0 0 34%;background:#fff9c4;font-weight:800;font-size:12px;border:1.8px solid #ffca28}
 #msgInput{flex:1;background:#fff}
 .circle{width:38px;height:38px;border-radius:50%;border:0;color:#fff;font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
-#momoModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:999;align-items:center;justify-content:center;padding:20px}
-.momoCard{background:#fff;border-radius:18px;padding:20px;width:100%;max-width:320px;text-align:center}
+#momoModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:999;align-items:center;justify-content:center;padding:20px}
+.momoCard{background:#fff;border-radius:18px;padding:20px;width:100%;max-width:340px;text-align:center}
 .momoNum{font-size:26px;font-weight:900;background:#ffecb3;padding:12px;border-radius:12px;margin:10px 0;border:2px dashed #f5a623}
-#installBanner{display:none;background:#25D366;color:#fff;padding:8px;text-align:center;font-size:12px;font-weight:700;cursor:pointer}
+#installBanner{background:#25D366;color:#fff;padding:10px;text-align:center;font-size:13px;font-weight:800;display:none}
+#installHelp{display:none;position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:1000;align-items:center;justify-content:center;padding:20px}
+.helpCard{background:#fff;border-radius:16px;padding:20px;max-width:360px;width:100%;text-align:left}
 </style></head><body>
-<div id=installBanner onclick="installApp()">📲 Install GH NOT App Now!</div>
+<div id=installBanner onclick="showInstallHelp()">📲 TAP TO INSTALL GH NOT APP!</div>
+<div id=installHelp onclick="this.style.display='none'"><div class=helpCard onclick="event.stopPropagation()">
+<h3>📲 How to Install GH NOT</h3>
+<p style="margin:10px 0"><b>Android Chrome:</b><br>1. Tap ⋮ (3 dots) top-right<br>2. Tap "Add to Home screen" or "Install app"<br>3. Tap Install</p>
+<p style="margin:10px 0"><b>iPhone Safari:</b><br>1. Tap Share button [ ] bottom<br>2. Scroll and tap "Add to Home Screen"<br>3. Tap Add</p>
+<p style="margin:10px 0"><b>If you see Install popup, just tap INSTALL!</b></p>
+<button onclick="document.getElementById('installHelp').style.display='none'" style="width:100%;padding:10px;background:#075e54;color:#fff;border:0;border-radius:20px;font-weight:800">Got it</button>
+</div></div>
 <div class=top>
 <span class=brand>GH NOT</span>
 <input id=roomInput value="open-thread">
@@ -75,18 +104,19 @@ body{font-family:sans-serif;background:#efeae2;display:flex;flex-direction:colum
 <button class=btn btn-share onclick="shareLink()">SHARE</button>
 <button class=btn btn-momo onclick="openMomo()">MOMO</button>
 <button class=btn btn-clear onclick="clearAll()">CLEAR ALL</button>
-<button class=btn btn-install id=installBtn onclick="installApp()">📲 INSTALL</button>
+<button class=btn btn-install id=installBtn>📲 INSTALL</button>
 </div>
 <div id=chat></div>
 <div id=momoModal onclick="closeMomo()"><div class=momoCard onclick="event.stopPropagation()">
 <h3>Support GH NOT 🇬🇭</h3><div class=momoNum>053 399 3024</div>
-<button onclick="navigator.clipboard.writeText('0533993024');alert('Copied')" class=btn btn-momo style="width:100%;padding:10px">COPY</button>
-<button onclick="closeMomo()" style="width:100%;margin-top:6px;padding:8px;border-radius:18px;border:0;background:#eee">Close</button>
+<p style="font-size:12px;color:#666">MTN MoMo Name: Jerrick</p>
+<button onclick="navigator.clipboard.writeText('0533993024');alert('Number Copied: 0533993024')" class=btn btn-momo style="width:100%;padding:12px;font-size:14px;margin-top:10px">📋 COPY NUMBER</button>
+<button onclick="closeMomo()" style="width:100%;margin-top:8px;padding:10px;border-radius:20px;border:0;background:#eee;font-weight:700">Close</button>
 </div></div>
 <div class=bottom>
 <div id=replyBox><div><b id=replyName style="color:#25D366"></b><div id=replyText style="color:#666"></div></div><span onclick="cancelReply()" style="font-weight:900;padding:0 8px;font-size:18px">✕</span></div>
 <div id=stickers>
-<div class=st onclick="sendSticker('😂')">😂</div><div class=st onclick="sendSticker('❤️')">❤️</div><div class=st onclick="sendSticker('🔥')">🔥</div><div class=st onclick="sendSticker('💀')">💀</div><div class=st onclick="sendSticker('😭')">😭</div><div class=st onclick="sendSticker('😂😭')">😂</div><div class=st onclick="sendSticker('😭😂')">😭</div><div class=st onclick="sendSticker('🙏')">🙏</div><div class=st onclick="sendSticker('💯')">💯</div><div class=st onclick="sendSticker('🇬🇭')">🇬🇭</div>
+<div class=st onclick="sendSticker('😂')">😂</div><div class=st onclick="sendSticker('❤️')">❤️</div><div class=st onclick="sendSticker('🔥')">🔥</div><div class=st onclick="sendSticker('💀')">💀</div><div class=st onclick="sendSticker('😭')">😭</div><div class=st onclick="sendSticker('🙏')">🙏</div><div class=st onclick="sendSticker('💯')">💯</div><div class=st onclick="sendSticker('🇬🇭')">🇬🇭</div>
 </div>
 <div class=row>
 <input id=nameInput class=inp placeholder="Enter your name...">
@@ -100,9 +130,21 @@ body{font-family:sans-serif;background:#efeae2;display:flex;flex-direction:colum
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <script>
 let deferredPrompt=null;
-window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferredPrompt=e; document.getElementById('installBtn').style.display='block'; document.getElementById('installBanner').style.display='block'; });
-function installApp(){ if(deferredPrompt){ deferredPrompt.prompt(); deferredPrompt=null; } else alert('Android: Menu ⋮ > Install App\\niPhone: Share > Add to Home Screen'); }
-if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
+const installBtn=document.getElementById('installBtn');
+const banner=document.getElementById('installBanner');
+window.addEventListener('beforeinstallprompt', e=>{
+ e.preventDefault(); deferredPrompt=e;
+ installBtn.style.display='block'; banner.style.display='block';
+});
+installBtn.addEventListener('click', async ()=>{
+ if(deferredPrompt){ deferredPrompt.prompt(); const r=await deferredPrompt.userChoice; deferredPrompt=null; installBtn.style.display='none'; banner.style.display='none'; } else { showInstallHelp(); }
+});
+function showInstallHelp(){ document.getElementById('installHelp').style.display='flex'; }
+function installApp(){ if(deferredPrompt){ deferredPrompt.prompt(); } else { showInstallHelp(); } }
+if('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js').catch(()=>{}); }
+// Show banner after 3 seconds if not installed
+setTimeout(()=>{ if(!window.matchMedia('(display-mode: standalone)').matches){ banner.style.display='block'; } },3000);
+
 let urlRoom=new URLSearchParams(location.search).get('room');
 let socket=io(), curRoom=urlRoom||localStorage.getItem('gh_room')||'open-thread', replyTo=null, mediaRecorder=null, chunks=[], isRec=false; if(urlRoom){ localStorage.setItem('gh_room', urlRoom); }
 const $=id=>document.getElementById(id);
@@ -111,7 +153,7 @@ $('roomInput').value=curRoom;
 $('nameInput').addEventListener('input',()=>localStorage.setItem('gh_name',$('nameInput').value));
 $('roomInput').addEventListener('input',()=>localStorage.setItem('gh_room',$('roomInput').value));
 function joinRoom(){ let r=$('roomInput').value.trim()||'open-thread'; localStorage.setItem('gh_room',r); location.href='?room='+encodeURIComponent(r); }
-function shareLink(){ let txt=`Download GH NOT App 🇬🇭\\n${location.href}`; navigator.clipboard.writeText(txt).then(()=>alert('Link copied!')); }
+function shareLink(){ let txt=`GH NOT App 🇬🇭 Download:\\n${location.href}\\n\\nEnter your name and join!`; navigator.clipboard.writeText(txt).then(()=>alert('Link copied! Send to friends')); }
 function openMomo(){ $('momoModal').style.display='flex'; }
 function closeMomo(){ $('momoModal').style.display='none'; }
 function cancelReply(){ replyTo=null; $('replyBox').style.display='none'; }
@@ -152,7 +194,7 @@ function deleteMsg(id){ socket.emit('delete',{room:curRoom,id:id}); }
 async function toggleMic(){
  if(!$('nameInput').value.trim()){ alert('Please enter your name first!'); $('nameInput').focus(); return; }
  let b=$('micBtn'); if(!isRec){
-  try{ let s=await navigator.mediaDevices.getUserMedia({audio:true}); mediaRecorder=new MediaRecorder(s); chunks=[]; mediaRecorder.ondataavailable=e=>chunks.push(e.data); mediaRecorder.onstop=()=>{ let blob=new Blob(chunks); let rd=new FileReader(); rd.onload=e=>{ socket.emit('send',getPayload('audio',e.target.result)); cancelReply(); }; rd.readAsDataURL(blob); }; mediaRecorder.start(); isRec=true; b.textContent='■'; b.style.background='red'; }catch{ alert('Mic blocked'); }
+  try{ let s=await navigator.mediaDevices.getUserMedia({audio:true}); mediaRecorder=new MediaRecorder(s); chunks=[]; mediaRecorder.ondataavailable=e=>chunks.push(e.data); mediaRecorder.onstop=()=>{ let blob=new Blob(chunks); let rd=new FileReader(); rd.onload=e=>{ socket.emit('send',getPayload('audio',e.target.result)); cancelReply(); }; rd.readAsDataURL(blob); }; mediaRecorder.start(); isRec=true; b.textContent='■'; b.style.background='red'; }catch{ alert('Mic blocked - allow mic in browser settings'); }
  }else{ mediaRecorder.stop(); mediaRecorder.stream.getTracks().forEach(t=>t.stop()); isRec=false; b.textContent='🎤'; b.style.background='#25D366'; }
 }
 $('msgInput').addEventListener('keydown',e=>{ if(e.key==='Enter') sendMsg(); });
@@ -169,14 +211,17 @@ async def on_send(sid, data):
     room=data.get('room','open-thread')
     rooms_data[room].append(data)
     if len(rooms_data[room])>400: rooms_data[room]=rooms_data[room][-400:]
+    save_db()
     await sio.emit('new_message', data, room=room)
 @sio.on('delete')
 async def on_delete(sid, data):
     room=data.get('room'); mid=data.get('id')
     rooms_data[room]=[m for m in rooms_data[room] if m.get('id')!=mid]
+    save_db()
     await sio.emit('delete_msg', mid, room=room)
 @sio.on('clear_all')
 async def on_clear(sid, data):
     room=data.get('room')
     rooms_data[room]=[]
+    save_db()
     await sio.emit('clear_all', {}, room=room)
