@@ -102,7 +102,9 @@ async function loadMsgs(){
  let r=await fetch('/msgs?room='+room);let data=await r.json();
  let box=document.getElementById('messages');box.innerHTML='';
  data.forEach((m,i)=>{
-  let d=document.createElement('div');d.className='msg'+(m.name==document.getElementById('name').value?' me':'');
+ let s=await navigator.mediaDevices.getUserMedia({audio:true});
+   let mime = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : 'audio/webm';
+   mediaRecorder=new MediaRecorder(s, {mimeType: mime});chunks=[];
   let rep=m.reply?`<div class="reply-box"><b>${m.reply.name}</b>: ${m.reply.text}</div>`:'';
   let cont='';
   if(m.type=='image') cont=`<img src="${m.text}" onclick="window.open(this.src)">`;
