@@ -1,2 +1,2 @@
-# gh-not-jerrick
+# gh-bot-jerrick
 Chat app by Jerrick smith 
