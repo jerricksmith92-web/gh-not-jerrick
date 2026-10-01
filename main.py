@@ -116,7 +116,8 @@ let deferredPrompt=null;
 window.addEventListener('beforeinstallprompt', (e)=>{ e.preventDefault(); deferredPrompt=e; document.getElementById('installBtn').style.display='block'; document.getElementById('installBanner').style.display='block'; });
 function installApp(){ if(deferredPrompt){ deferredPrompt.prompt(); deferredPrompt.userChoice.then(c=>{ if(c.outcome==='accepted'){ document.getElementById('installBanner').style.display='none'; } deferredPrompt=null; }); } else { alert('To install:\\nAndroid: Tap ⋮ > Add to Home screen / Install app\\niPhone: Tap Share > Add to Home Screen'); } }
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js'); }
-let socket=io(), curRoom=localStorage.getItem('gh_room')||new URLSearchParams(location.search).get('room')||'open-thread', replyTo=null, mediaRecorder=null, chunks=[], isRec=false;
+let urlRoom=new URLSearchParams(location.search).get('room');
+let socket=io(), curRoom=urlRoom||localStorage.getItem('gh_room')||'open-thread', replyTo=null, mediaRecorder=null, chunks=[], isRec=false; if(urlRoom){ localStorage.setItem('gh_room', urlRoom); }
 const $=id=>document.getElementById(id);
 let savedName=localStorage.getItem('gh_name')||'Jerrick Smith';
 $('nameInput').value=savedName;
